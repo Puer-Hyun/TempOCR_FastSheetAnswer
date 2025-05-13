@@ -20,6 +20,9 @@ model_handler = AsyncModelHandler()
 class FilenameRequest(BaseModel):
     filename: str
 
+class FilenamesRequest(BaseModel):
+    filenames: List[str]  # 최대 50개의 파일명 리스트
+
 class FilenameAnalysis(BaseModel):
     year: Optional[int] = None
     grade: Optional[str] = None  # 고1, 고2, 고3, 중1, 중2, 중3 등
@@ -34,6 +37,10 @@ class FilenameAnalysis(BaseModel):
 class FilenameResponse(BaseModel):
     status: str
     analysis: FilenameAnalysis
+
+class FilenamesResponse(BaseModel):
+    status: str
+    analyses: List[FilenameAnalysis]
 
 # 이미지 분석을 위한 모델
 class ImageRequest(BaseModel):
@@ -399,16 +406,16 @@ For every image provided, carefully inspect:
 
 1. Evidence that the problem was actually solved by a student
    – handwriting, markings, erased traces, etc.
-   – OR the presence of an official school stamp / principal’s seal.
+   – OR the presence of an official school stamp / principal's seal.
      (A school seal counts as proof that the sheet is an original copy,
       even when no student scribbles are visible.)
 
 2. Whether the image is an official answer sheet
    – ANY of the following makes it an answer sheet:
-       • a table or list labelled “정답”, “모범답안”, “Answer Key”, etc.
+       • a table or list labelled "정답", "모범답안", "Answer Key", etc.
        • a grid of question numbers with corresponding answers
        • official explanations printed next to answers
-   – Ignore the student’s own writing when deciding if it is an answer sheet.
+   – Ignore the student's own writing when deciding if it is an answer sheet.
 
 Return **one** JSON object with these two Boolean fields:
 
@@ -443,6 +450,95 @@ Respond **only** with valid JSON – no additional keys, comments, or text.
 
     except Exception as e:
         logger.error(f"Error during image analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze/filenames")
+async def analyze_filenames(request: FilenamesRequest):
+    try:
+        if len(request.filenames) > 50:
+            raise HTTPException(status_code=400, detail="최대 50개의 파일명만 처리할 수 있습니다.")
+            
+        logger.info(f"Received request to analyze {len(request.filenames)} filenames")
+        
+        filenames_analysis_prompt = f"""
+다음 파일명들을 분석해주세요:
+
+{chr(10).join([f"{i+1}. {filename}" for i, filename in enumerate(request.filenames)])}
+
+파일명 분석 가이드:
+- 파일명에서 학교, 학년과 학기, 시험 정보를 추출할 수 있습니다. 예를 들어:
+  * "백석고 고1-2 중간" -> 백석고등학교 1학년 2학기 중간고사
+  * "첨단고등학교 고2-1 기말" -> 첨단고등학교 2학년 1학기 기말고사
+
+각 파일명에 대해 다음 정보를 추출해주세요:
+1. year: 문서의 실시년도
+2. grade: 문서의 학년 (고1, 고2, 고3, 중1, 중2, 중3 등)
+3. track: 문서에서 나타나는 계열 정보 (공통, 문과, 이과)
+4. semester: 문서의 학기 (1학기, 2학기)
+5. test_type: 문서의 시험 유형 (중간고사, 기말고사)
+6. subject: 문서의 과목 (수학)
+7. detail_subject: 문서의 세부과목 (미적분, 기하, 확률과 통계, 공통수학, 수학(상), 수학(하), 기하와 벡터 등)
+8. school: 문서의 학교 이름 (XX중학교, YY고등학교)
+9. location: 지역 (서울 서초구, 인천 연수구, 경기 오산시, 오산시 등)
+
+응답은 반드시 다음 JSON 형식이어야 합니다:
+{{
+    "status": "success",
+    "analyses": [
+        {{
+            "year": 2024,
+            "grade": "고1",
+            "track": "공통",
+            "semester": "1학기",
+            "test_type": "중간고사",
+            "subject": "수학",
+            "detail_subject": "수학(상)",
+            "school": "OO고등학교",
+            "location": "서울 강남구"
+        }},
+        // ... 나머지 파일명들에 대한 분석 결과
+    ]
+}}
+"""
+
+        response = await model_handler.generate_response(
+            prompt=filenames_analysis_prompt,
+            system_instruction="당신은 파일 분석의 전문가입니다. 여러 파일명을 한 번에 분석하여 시험지의 기본 정보를 추출해주세요. 반드시 JSON 형식으로 응답해주세요. 이때, grade는 축약어로 고1, 고2, 고3, 중1, 중2, 중3 중에서 골라야하고, test_type은 중간고사, 기말고사 중에 골라야합니다. 만약 '1차' 라는 정보가 있다면 그것은 중간고사를 의미하고, '2차'라는 정보가 있다면 그것은 기말고사를 의미합니다. school은 AA중학교 혹은 BB고등학교와 같이 축약어가 아닌 방식으로 적어주세요. 학기(semester)는 1학기, 2학기 중에 골라야합니다. 23-2-1-M 의 경우는 2023년 2학년 1학기 중간고사를 의미합니다. M은 중간고사, F는 기말고사를 의미할 수도 있습니다. track은 계열 정보를 의미합니다. 문과, 이과인지 공통인지를 의미합니다.",
+            temperature=0.1,
+            response_model=FilenamesResponse
+        )
+
+        # 응답이 FilenamesResponse 타입인 경우
+        if isinstance(response.content, FilenamesResponse):
+            return {
+                "status": "success with FilenamesResponse",
+                "analyses": response.content.analyses
+            }
+        # 응답이 문자열인 경우 JSON으로 파싱 시도
+        elif isinstance(response.content, str):
+            try:
+                analysis_data = json.loads(response.content)
+                return {
+                    "status": "success with str...",
+                    "analyses": analysis_data["analyses"]
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {str(e)}")
+                logger.error(f"원본 응답: {response.content}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"JSON 파싱 오류: {str(e)}"
+                )
+        else:
+            logger.error(f"예상치 못한 응답 타입: {type(response.content)}")
+            logger.error(f"응답 내용: {response.content}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"예상치 못한 응답 타입: {type(response.content)}"
+            )
+
+    except Exception as e:
+        logger.error(f"파일명 분석 중 오류 발생: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
