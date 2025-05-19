@@ -87,6 +87,19 @@ class NewCheckFilenameAnalysisResponse(BaseModel):
     status: str
     results: Dict[str, FieldResult]
 
+
+class AnswerResponse(BaseModel):
+    type: str
+    number: int
+    answer: str
+    score: float
+    
+class ScoreResponse(BaseModel):
+    status: str
+    scores: List[float]  # 각 이미지별 점수 리스트
+    answers: Optional[List[AnswerResponse]] = None
+
+
 @app.post("/analyze/filename")
 async def analyze_filename(request: FilenameRequest):
     try:
@@ -540,6 +553,175 @@ async def analyze_filenames(request: FilenamesRequest):
     except Exception as e:
         logger.error(f"파일명 분석 중 오류 발생: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/analyze/ocr_scores")
+async def analyze_ocr_scores(request: ImageRequest):
+    """
+    이미지에서 수학 문제의 점수를 추출합니다.
+    Returns {"status": "success", "scores": [3.7, 2.5, ...]}  # 각 이미지별 점수
+    """
+    try:
+        logger.info(f"Received request to analyze scores from {len(request.images)} images")
+
+        system_instruction = """
+당신은 수학 시험지의 점수를 추출하는 전문가입니다.
+주어진 이미지에서 다음 규칙에 따라 점수만 추출해주세요:
+
+1. 점수 추출 규칙:
+   - 0~15 사이의 숫자만 점수로 인식
+   - 소수점이 있는 경우도 포함 (예: 3.7, 2.5)
+   - 괄호, 중괄호 등은 무시하고 순수 숫자만 추출
+   - 15보다 큰 숫자는 무시
+   - 점수가 없는 경우 0으로 처리
+
+2. 응답 형식:
+   - 각 이미지별로 점수를 리스트로 반환
+   - JSON 형식으로 응답
+   - 예시: {"status": "success", "scores": [3.7, 2.5, 0, 1.0]}
+
+3. 주의사항:
+   - 문제 번호나 다른 숫자는 무시
+   - 점수 표시가 있는 부분만 추출
+   - 확실하지 않은 경우 0으로 처리
+"""
+
+        # 모델 호출
+        model_resp = await model_handler.generate_response_with_images(
+            prompt="이미지에서 수학 문제의 점수만 추출해주세요.",
+            images=request.images,
+            system_instruction=system_instruction,
+            temperature=0.1,
+            response_model=ScoreResponse
+        )
+
+        # 응답 처리
+        if isinstance(model_resp.content, ScoreResponse):
+            return {
+                "status": "success",
+                "scores": model_resp.content.scores
+            }
+        elif isinstance(model_resp.content, str):
+            try:
+                response_data = json.loads(model_resp.content)
+                return {
+                    "status": "success",
+                    "scores": response_data["scores"]
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {str(e)}")
+                logger.error(f"원본 응답: {model_resp.content}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"JSON 파싱 오류: {str(e)}"
+                )
+        else:
+            logger.error(f"예상치 못한 응답 타입: {type(model_resp.content)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"예상치 못한 응답 타입: {type(model_resp.content)}"
+            )
+
+    except Exception as e:
+        logger.error(f"점수 분석 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/analyze/fast_answer_sheet")
+async def analyze_fast_answer_sheet(request: ImageRequest):
+    """
+    이미지에서 수학 문제의 점수를 추출합니다.
+    Returns {"status": "success", "scores": [3.7, 2.5, ...]}  # 각 이미지별 점수
+    """
+    try:
+        logger.info(f"Received request to analyze scores from {len(request.images)} images")
+        logger.info(f"Request images count: {len(request.images)}")
+
+        system_instruction = """
+당신은 수학 시험지의 빠른 정답을 추출하는 전문가입니다.
+주어진 이미지에서 다음 규칙에 따라 이 수학 문제의 정답과 배점을 추출해주세요:
+
+1. 정답 추출 규칙:
+   - 객관식, 주관식, 서술형을 구분할 것.
+   - 대부분의 문제는 객관식임. "정답" 열 혹은 "정답" 행 에 있는 값들이 정답임.
+   - 주관식의 경우 latex으로 정답을 추출할 것
+   - 서술형의 경우 '해설참조'로 추출할 것.
+   
+   
+2. 배점 추출 규칙
+   - 0~15 사이의 숫자만 점수로 인식
+   - 소수점이 있는 경우도 포함 (예: 3.7, 2.5)
+   - 괄호, 중괄호 등은 무시하고 순수 숫자만 추출
+   - 15보다 큰 숫자는 무시
+   
+
+3. 응답 형식:
+   - 각 이미지들을 전부 참조하여 정답과 배점을 추출할 것.
+   - JSON 형식으로 응답
+   - 예시: {"status": "success", "answers": [{type: "객관식", number: 1, answer: "1", score: 1}, {type: "주관식", number: 2, answer: "2"}, {type: "서술형", number: 3, answer: "해설참조"}], 
+   "scores": [{number: 1, score: 1.7}, {"number": 2, "score": 2.5}, {"number": 3, "score": 3.7}]}
+
+4. 주의사항:
+   - 문제 번호나 다른 숫자는 무시
+   - 점수 표시가 있는 부분만 추출
+   - 확실하지 않은 경우 0으로 처리
+   - 여러 과목에 대한 정답표가 있는 경우 '수학'만 처리
+   - 숫자만 나열된 경우 맨 위에서부터 차례대로 처리하되, 1행 = 1,2,3,4,5번, 2행=6,7,8,9,10번, 3행=11,12,13,14,15번 이러한 방식임.
+"""
+
+        logger.info("Calling model with system instruction and images")
+        # 모델 호출
+        model_resp = await model_handler.generate_response_with_images(
+            model="gemini-2.5-pro-preview-05-06",
+            prompt="이미지에서 수학 문제의 정답과 배점을 추출해주세요.",
+            images=request.images,
+            system_instruction=system_instruction,
+            temperature=0.1,
+            response_model=ScoreResponse
+        )
+
+        logger.info(f"Model response type: {type(model_resp.content)}")
+        logger.info(f"Model response content: {model_resp.content}")
+
+        # 응답 처리
+        if isinstance(model_resp.content, ScoreResponse):
+            logger.info("Processing ScoreResponse type response")
+            return {
+                "status": "success",
+                "scores": model_resp.content.scores,
+                "answers": model_resp.content.answers
+            }
+        elif isinstance(model_resp.content, str):
+            logger.info("Processing string type response")
+            try:
+                response_data = json.loads(model_resp.content)
+                logger.info(f"Parsed JSON response: {response_data}")
+                return {
+                    "status": "success",
+                    "scores": response_data["scores"],
+                    "answers": response_data["answers"]
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {str(e)}")
+                logger.error(f"원본 응답: {model_resp.content}")
+                logger.error(f"응답 길이: {len(model_resp.content) if model_resp.content else 0}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"JSON 파싱 오류: {str(e)}"
+                )
+        else:
+            logger.error(f"예상치 못한 응답 타입: {type(model_resp.content)}")
+            logger.error(f"응답 내용: {model_resp.content}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"예상치 못한 응답 타입: {type(model_resp.content)}"
+            )
+
+    except Exception as e:
+        logger.error(f"점수 분석 중 오류 발생: {str(e)}")
+        logger.error(f"오류 타입: {type(e)}")
+        logger.error(f"오류 상세: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8010) 

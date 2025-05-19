@@ -639,6 +639,7 @@ class AsyncModelHandler:
         max_tokens: int = 8192,
         stream: bool = False,
         response_model: Type[BaseModel] = None,
+        model: str = "gemini-2.0-flash-lite",
     ) -> ModelResponse:
         """이미지와 텍스트를 함께 처리하여 응답 생성"""
         try:
@@ -670,7 +671,7 @@ class AsyncModelHandler:
             if stream:
                 full_response = ""
                 async for chunk in self.client.models.generate_content_stream(
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     contents=contents,
                     config=config
                 ):
@@ -683,7 +684,7 @@ class AsyncModelHandler:
                 return ModelResponse(
                     content=full_response,
                     usage_metadata=chunk.usage_metadata,
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     input_tokens=chunk.usage_metadata.prompt_token_count,
                     output_tokens=chunk.usage_metadata.candidates_token_count,
                     total_tokens=chunk.usage_metadata.total_token_count,
@@ -691,7 +692,7 @@ class AsyncModelHandler:
                 )
             else:
                 response = await self.client.models.generate_content(
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     contents=contents,
                     config=config
                 )
@@ -718,7 +719,7 @@ class AsyncModelHandler:
                 return ModelResponse(
                     content=content,
                     usage_metadata=response.usage_metadata,
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     input_tokens=response.usage_metadata.prompt_token_count,
                     output_tokens=response.usage_metadata.candidates_token_count,
                     total_tokens=response.usage_metadata.total_token_count,
