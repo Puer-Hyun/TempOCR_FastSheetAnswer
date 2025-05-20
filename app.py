@@ -627,13 +627,10 @@ async def analyze_ocr_scores(request: ImageRequest):
     
 @app.post("/analyze/fast_answer_sheet")
 async def analyze_fast_answer_sheet(request: ImageRequest):
-    """
-    이미지에서 수학 문제의 점수를 추출합니다.
-    Returns {"status": "success", "scores": [3.7, 2.5, ...]}  # 각 이미지별 점수
-    """
     try:
         logger.info(f"Received request to analyze scores from {len(request.images)} images")
         logger.info(f"Request images count: {len(request.images)}")
+        logger.info(f"First image length: {len(request.images[0]) if request.images else 0}")
 
         system_instruction = """
 당신은 수학 시험지의 빠른 정답을 추출하는 전문가입니다.
@@ -665,20 +662,31 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
    - 확실하지 않은 경우 0으로 처리
    - 여러 과목에 대한 정답표가 있는 경우 '수학'만 처리
    - 숫자만 나열된 경우 맨 위에서부터 차례대로 처리하되, 1행 = 1,2,3,4,5번, 2행=6,7,8,9,10번, 3행=11,12,13,14,15번 이러한 방식임.
+   - 문항 번호는 있지만 정답이 없으면 문항도 없는 것으로 간주해야 합니다.
+   - 객관식의 경우 1,2,3,4,5 등의 답은 "⓪①②③④⑤⑥⑦⑧⑨"와 같이 원문자를 이용하여 답변을 해야해.
 """
 
         logger.info("Calling model with system instruction and images")
+        logger.info(f"System instruction length: {len(system_instruction)}")
+        
         # 모델 호출
-        model_resp = await model_handler.generate_response_with_images(
-            model="gemini-2.5-pro-preview-05-06",
-            prompt="이미지에서 수학 문제의 정답과 배점을 추출해주세요.",
-            images=request.images,
-            system_instruction=system_instruction,
-            temperature=0.1,
-            response_model=ScoreResponse
-        )
+        try:
+            model_resp = await model_handler.generate_response_with_images(
+                model="gemini-2.5-pro-preview-05-06",
+                prompt="이미지에서 수학 문제의 정답과 배점을 추출해주세요.",
+                images=request.images,
+                system_instruction=system_instruction,
+                temperature=0.1,
+                response_model=ScoreResponse
+            )
+            logger.info("Model call completed successfully")
+        except Exception as model_error:
+            logger.error(f"Model call failed: {str(model_error)}")
+            logger.error(f"Model error type: {type(model_error)}")
+            raise
 
         logger.info(f"Model response type: {type(model_resp.content)}")
+        logger.info(f"Model response content length: {len(str(model_resp.content)) if model_resp.content else 0}")
         logger.info(f"Model response content: {model_resp.content}")
 
         # 응답 처리
@@ -692,6 +700,13 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
         elif isinstance(model_resp.content, str):
             logger.info("Processing string type response")
             try:
+                if not model_resp.content.strip():
+                    logger.error("Received empty response from model")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="모델에서 빈 응답을 받았습니다."
+                    )
+                    
                 response_data = json.loads(model_resp.content)
                 logger.info(f"Parsed JSON response: {response_data}")
                 return {
@@ -703,6 +718,7 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
                 logger.error(f"JSON 파싱 오류: {str(e)}")
                 logger.error(f"원본 응답: {model_resp.content}")
                 logger.error(f"응답 길이: {len(model_resp.content) if model_resp.content else 0}")
+                logger.error(f"응답의 첫 100자: {model_resp.content[:100] if model_resp.content else 'None'}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"JSON 파싱 오류: {str(e)}"
