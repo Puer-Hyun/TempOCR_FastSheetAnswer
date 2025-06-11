@@ -201,9 +201,32 @@ class ModelHandler:
                 if response_model:
                     try:
                         text = response.text
-                        if text.rfind('}') > text.rfind('{'):
-                            text = text[:text.rfind('}')+1]
-                        json_data = json.loads(text)
+                        if not text:
+                            self.logger.error("Empty response text received from model")
+                            raise ValueError("모델에서 빈 응답을 받았습니다.")
+                            
+                        # JSON 형식이 아닌 경우를 위한 처리
+                        if not (text.strip().startswith('{') and text.strip().endswith('}')):
+                            self.logger.error(f"Invalid JSON format in response: {text[:100]}")
+                            raise ValueError("응답이 올바른 JSON 형식이 아닙니다.")
+                            
+                        # JSON 파싱 시도
+                        try:
+                            json_data = json.loads(text)
+                        except json.JSONDecodeError:
+                            # 마지막 중괄호를 찾아서 자르기 시도
+                            last_brace = text.rfind('}')
+                            if last_brace > text.rfind('{'):
+                                text = text[:last_brace+1]
+                                try:
+                                    json_data = json.loads(text)
+                                except json.JSONDecodeError as e:
+                                    self.logger.error(f"JSON parsing error after truncation: {str(e)}")
+                                    self.logger.error(f"Truncated text: {text}")
+                                    raise
+                            else:
+                                raise
+                                
                         content = response_model.model_validate(json_data)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing error: {str(e)}")
@@ -213,7 +236,7 @@ class ModelHandler:
                         self.logger.error(f"Validation error: {str(e)}")
                         raise
                 else:
-                    content = response.text
+                    content = response.text if response.text else ""
                 
                 return ModelResponse(
                     content=content,
@@ -314,6 +337,7 @@ class ModelHandler:
         max_tokens: int = 8192,
         stream: bool = False,
         response_model: Type[BaseModel] = None,
+        model: str = "gemini-2.0-flash-lite",
     ) -> ModelResponse:
         """이미지와 텍스트를 함께 처리하여 응답 생성"""
         try:
@@ -329,6 +353,9 @@ class ModelHandler:
             )
             
             self.logger.debug(f"Starting async generation with config: {config}")
+            self.logger.debug(f"Model: {model}")
+            self.logger.debug(f"Number of images: {len(images)}")
+            self.logger.debug(f"Prompt length: {len(prompt)}")
             
             # 멀티모달 입력 구성
             contents = []
@@ -345,7 +372,7 @@ class ModelHandler:
             if stream:
                 full_response = ""
                 async for chunk in self.client.models.generate_content_stream(
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     contents=contents,
                     config=config
                 ):
@@ -358,27 +385,62 @@ class ModelHandler:
                 return ModelResponse(
                     content=full_response,
                     usage_metadata=chunk.usage_metadata,
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     input_tokens=chunk.usage_metadata.prompt_token_count,
                     output_tokens=chunk.usage_metadata.candidates_token_count,
                     total_tokens=chunk.usage_metadata.total_token_count,
                     processing_time=processing_time
                 )
             else:
+                self.logger.debug("Sending request to model...")
                 response = await self.client.models.generate_content(
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     contents=contents,
                     config=config
                 )
                 
                 processing_time = time.time() - start_time
+                self.logger.debug(f"Received response from model. Processing time: {processing_time:.2f}s")
+                self.logger.debug(f"Response type: {type(response)}")
+                self.logger.debug(f"Response has text: {hasattr(response, 'text')}")
+                self.logger.debug(f"Response text type: {type(response.text) if hasattr(response, 'text') else 'No text attribute'}")
+                
+                if hasattr(response, 'text'):
+                    self.logger.debug(f"Response text length: {len(response.text) if response.text else 0}")
+                    if response.text:
+                        self.logger.debug(f"Response text preview: {response.text[:100]}")
                 
                 if response_model:
                     try:
                         text = response.text
-                        if text.rfind('}') > text.rfind('{'):
-                            text = text[:text.rfind('}')+1]
-                        json_data = json.loads(text)
+                        if not text:
+                            self.logger.error("Empty response text received from model")
+                            self.logger.error(f"Response object: {response}")
+                            self.logger.error(f"Response attributes: {dir(response)}")
+                            raise ValueError("모델에서 빈 응답을 받았습니다.")
+                            
+                        # JSON 형식이 아닌 경우를 위한 처리
+                        if not (text.strip().startswith('{') and text.strip().endswith('}')):
+                            self.logger.error(f"Invalid JSON format in response: {text[:100]}")
+                            raise ValueError("응답이 올바른 JSON 형식이 아닙니다.")
+                            
+                        # JSON 파싱 시도
+                        try:
+                            json_data = json.loads(text)
+                        except json.JSONDecodeError:
+                            # 마지막 중괄호를 찾아서 자르기 시도
+                            last_brace = text.rfind('}')
+                            if last_brace > text.rfind('{'):
+                                text = text[:last_brace+1]
+                                try:
+                                    json_data = json.loads(text)
+                                except json.JSONDecodeError as e:
+                                    self.logger.error(f"JSON parsing error after truncation: {str(e)}")
+                                    self.logger.error(f"Truncated text: {text}")
+                                    raise
+                            else:
+                                raise
+                                
                         content = response_model.model_validate(json_data)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing error: {str(e)}")
@@ -388,12 +450,12 @@ class ModelHandler:
                         self.logger.error(f"Validation error: {str(e)}")
                         raise
                 else:
-                    content = response.text
+                    content = response.text if response.text else ""
                 
                 return ModelResponse(
                     content=content,
                     usage_metadata=response.usage_metadata,
-                    model="gemini-2.0-flash-lite",
+                    model=model,
                     input_tokens=response.usage_metadata.prompt_token_count,
                     output_tokens=response.usage_metadata.candidates_token_count,
                     total_tokens=response.usage_metadata.total_token_count,
@@ -402,6 +464,8 @@ class ModelHandler:
             
         except Exception as e:
             self.logger.error(f"Error in async generate_response_with_images: {str(e)}")
+            self.logger.error(f"Error type: {type(e)}")
+            self.logger.error(f"Error details: {str(e)}")
             raise
 
 class AsyncModelHandler:
@@ -544,9 +608,32 @@ class AsyncModelHandler:
                 if response_model:
                     try:
                         text = response.text
-                        if text.rfind('}') > text.rfind('{'):
-                            text = text[:text.rfind('}')+1]
-                        json_data = json.loads(text)
+                        if not text:
+                            self.logger.error("Empty response text received from model")
+                            raise ValueError("모델에서 빈 응답을 받았습니다.")
+                            
+                        # JSON 형식이 아닌 경우를 위한 처리
+                        if not (text.strip().startswith('{') and text.strip().endswith('}')):
+                            self.logger.error(f"Invalid JSON format in response: {text[:100]}")
+                            raise ValueError("응답이 올바른 JSON 형식이 아닙니다.")
+                            
+                        # JSON 파싱 시도
+                        try:
+                            json_data = json.loads(text)
+                        except json.JSONDecodeError:
+                            # 마지막 중괄호를 찾아서 자르기 시도
+                            last_brace = text.rfind('}')
+                            if last_brace > text.rfind('{'):
+                                text = text[:last_brace+1]
+                                try:
+                                    json_data = json.loads(text)
+                                except json.JSONDecodeError as e:
+                                    self.logger.error(f"JSON parsing error after truncation: {str(e)}")
+                                    self.logger.error(f"Truncated text: {text}")
+                                    raise
+                            else:
+                                raise
+                                
                         content = response_model.model_validate(json_data)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing error: {str(e)}")
@@ -556,7 +643,7 @@ class AsyncModelHandler:
                         self.logger.error(f"Validation error: {str(e)}")
                         raise
                 else:
-                    content = response.text
+                    content = response.text if response.text else ""
                 
                 return ModelResponse(
                     content=content,
@@ -645,7 +732,8 @@ class AsyncModelHandler:
         try:
             import time
             start_time = time.time()
-            
+            if model == "gemini-2.5-pro-preview-05-06":
+                max_tokens = 20000
             config = GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
@@ -655,6 +743,9 @@ class AsyncModelHandler:
             )
             
             self.logger.debug(f"Starting async generation with config: {config}")
+            self.logger.debug(f"Model: {model}")
+            self.logger.debug(f"Number of images: {len(images)}")
+            self.logger.debug(f"Prompt length: {len(prompt)}")
             
             # 멀티모달 입력 구성
             contents = []
@@ -691,20 +782,55 @@ class AsyncModelHandler:
                     processing_time=processing_time
                 )
             else:
+                self.logger.debug("Sending request to model...")
                 response = await self.client.models.generate_content(
                     model=model,
                     contents=contents,
                     config=config
                 )
-                
+                print(f"response: {response}")
                 processing_time = time.time() - start_time
+                self.logger.debug(f"Received response from model. Processing time: {processing_time:.2f}s")
+                self.logger.debug(f"Response type: {type(response)}")
+                self.logger.debug(f"Response has text: {hasattr(response, 'text')}")
+                self.logger.debug(f"Response text type: {type(response.text) if hasattr(response, 'text') else 'No text attribute'}")
+                
+                if hasattr(response, 'text'):
+                    self.logger.debug(f"Response text length: {len(response.text) if response.text else 0}")
+                    if response.text:
+                        self.logger.debug(f"Response text preview: {response.text[:100]}")
                 
                 if response_model:
                     try:
                         text = response.text
-                        if text.rfind('}') > text.rfind('{'):
-                            text = text[:text.rfind('}')+1]
-                        json_data = json.loads(text)
+                        if not text:
+                            self.logger.error("Empty response text received from model")
+                            self.logger.error(f"Response object: {response}")
+                            self.logger.error(f"Response attributes: {dir(response)}")
+                            raise ValueError("모델에서 빈 응답을 받았습니다.")
+                            
+                        # JSON 형식이 아닌 경우를 위한 처리
+                        if not (text.strip().startswith('{') and text.strip().endswith('}')):
+                            self.logger.error(f"Invalid JSON format in response: {text[:100]}")
+                            raise ValueError("응답이 올바른 JSON 형식이 아닙니다.")
+                            
+                        # JSON 파싱 시도
+                        try:
+                            json_data = json.loads(text)
+                        except json.JSONDecodeError:
+                            # 마지막 중괄호를 찾아서 자르기 시도
+                            last_brace = text.rfind('}')
+                            if last_brace > text.rfind('{'):
+                                text = text[:last_brace+1]
+                                try:
+                                    json_data = json.loads(text)
+                                except json.JSONDecodeError as e:
+                                    self.logger.error(f"JSON parsing error after truncation: {str(e)}")
+                                    self.logger.error(f"Truncated text: {text}")
+                                    raise
+                            else:
+                                raise
+                                
                         content = response_model.model_validate(json_data)
                     except json.JSONDecodeError as e:
                         self.logger.error(f"JSON parsing error: {str(e)}")
@@ -714,7 +840,7 @@ class AsyncModelHandler:
                         self.logger.error(f"Validation error: {str(e)}")
                         raise
                 else:
-                    content = response.text
+                    content = response.text if response.text else ""
                 
                 return ModelResponse(
                     content=content,
@@ -728,4 +854,6 @@ class AsyncModelHandler:
             
         except Exception as e:
             self.logger.error(f"Error in async generate_response_with_images: {str(e)}")
+            self.logger.error(f"Error type: {type(e)}")
+            self.logger.error(f"Error details: {str(e)}")
             raise
