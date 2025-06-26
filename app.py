@@ -90,13 +90,12 @@ class NewCheckFilenameAnalysisResponse(BaseModel):
 
 class AnswerResponse(BaseModel):
     type: str
-    number: int
+    number: str  # int에서 str로 변경
     answer: str
     score: float
     
 class ScoreResponse(BaseModel):
     status: str
-    scores: List[float]  # 각 이미지별 점수 리스트
     answers: Optional[List[AnswerResponse]] = None
 
 
@@ -634,36 +633,32 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
 
         system_instruction = """
 당신은 수학 시험지의 빠른 정답을 추출하는 전문가입니다.
-주어진 이미지에서 다음 규칙에 따라 이 수학 문제의 정답과 배점을 추출해주세요:
+주어진 이미지에서 다음 규칙에 따라 이 수학 문제의 정답을 추출해주세요:
 
 1. 정답 추출 규칙:
    - 객관식, 주관식, 서술형을 구분할 것.
    - 대부분의 문제는 객관식임. "정답" 열 혹은 "정답" 행 에 있는 값들이 정답임.
    - 주관식의 경우 $$로 감싸진 latex 문법으로 정답을 추출할 것
    - 서술형의 경우 '해설참조'로 추출할 것.
-   
-   
-2. 배점 추출 규칙
-   - 0~15 사이의 숫자만 점수로 인식
-   - 소수점이 있는 경우도 포함 (예: 3.7, 2.5)
-   - 괄호, 중괄호 등은 무시하고 순수 숫자만 추출
-   - 15보다 큰 숫자는 무시
-   
+   - 객관식의 경우 1,2,3,4,5 등의 답은 "⓪①②③④⑤⑥⑦⑧⑨"와 같이 원문자를 이용하여 답변을 해야해.
 
-3. 응답 형식:
-   - 각 이미지들을 전부 참조하여 정답과 배점을 추출할 것.
+2. 응답 형식:
+   - 각 이미지들을 전부 참조하여 정답을 추출할 것.
    - JSON 형식으로 응답
-   - 예시: {"status": "success", "answers": [{type: "객관식", number: 1, answer: "1", score: 1}, {type: "주관식", number: 2, answer: "2"}, {type: "서술형", number: 3, answer: "해설참조"}], 
-   "scores": [{number: 1, score: 1.7}, {"number": 2, "score": 2.5}, {"number": 3, "score": 3.7}]}
+   - 예시: {
+       "status": "success", 
+       "answers": [
+           {"type": "객관식", "number": "1", "answer": "①", "score": 1}, 
+           {"type": "주관식", "number": "1-1", "answer": "2", "score": 2}, 
+           {"type": "서술형", "number": "1-가", "answer": "해설참조", "score": 3}
+       ]
+   }
 
-4. 주의사항:
-   - 문제 번호나 다른 숫자는 무시
-   - 점수 표시가 있는 부분만 추출
-   - 확실하지 않은 경우 0으로 처리
+3. 주의사항:
+   - 문제 번호는 문자열로 처리하여 "1-1", "1-가" 등의 형식을 그대로 유지해야 합니다.
    - 여러 과목에 대한 정답표가 있는 경우 '수학'만 처리
    - 숫자만 나열된 경우 맨 위에서부터 차례대로 처리하되, 1행 = 1,2,3,4,5번, 2행=6,7,8,9,10번, 3행=11,12,13,14,15번 이러한 방식임.
    - 문항 번호는 있지만 정답이 없으면 문항도 없는 것으로 간주해야 합니다.
-   - 객관식의 경우 1,2,3,4,5 등의 답은 "⓪①②③④⑤⑥⑦⑧⑨"와 같이 원문자를 이용하여 답변을 해야해.
 """
 
         logger.info("Calling model with system instruction and images")
@@ -694,7 +689,6 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
             logger.info("Processing ScoreResponse type response")
             return {
                 "status": "success",
-                "scores": model_resp.content.scores,
                 "answers": model_resp.content.answers
             }
         elif isinstance(model_resp.content, str):
@@ -711,7 +705,6 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
                 logger.info(f"Parsed JSON response: {response_data}")
                 return {
                     "status": "success",
-                    "scores": response_data["scores"],
                     "answers": response_data["answers"]
                 }
             except json.JSONDecodeError as e:
