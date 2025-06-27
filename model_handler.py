@@ -794,7 +794,6 @@ class AsyncModelHandler:
                     contents=contents,
                     config=config
                 )
-                print(f"response: {response}")
                 processing_time = time.time() - start_time
                 self.logger.debug(f"Received response from model. Processing time: {processing_time:.2f}s")
                 self.logger.debug(f"Response type: {type(response)}")
