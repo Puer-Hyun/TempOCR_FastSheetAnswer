@@ -7,6 +7,7 @@ from typing import Dict, List, Any, Optional, Type, NamedTuple
 from pydantic import BaseModel
 from google import genai
 from google.genai.types import GenerateContentConfig
+from google.genai import types as genaitypes
 from dotenv import load_dotenv
 import base64
 from io import BytesIO
@@ -732,14 +733,13 @@ class AsyncModelHandler:
         try:
             import time
             start_time = time.time()
-            if model == "gemini-2.5-pro-preview-05-06":
-                max_tokens = 20000
             config = GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 system_instruction=system_instruction,
                 response_mime_type="application/json" if response_model else None,
-                response_schema=response_model if response_model else None
+                response_schema=response_model if response_model else None,
+                # thinking_config=genaitypes.ThinkingConfig(thinking_budget=8192)
             )
             
             self.logger.debug(f"Starting async generation with config: {config}")
