@@ -6,10 +6,12 @@ import uvicorn
 from model_handler import AsyncModelHandler
 import logging
 import json
+import os
 
 # 로거 설정
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -490,165 +492,165 @@ class ScoreResponse(BaseModel):
 #         logger.error(f"Error during image analysis: {str(e)}")
 #         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.post("/analyze/filenames")
-# async def analyze_filenames(request: FilenamesRequest):
-#     try:
-#         if len(request.filenames) > 50:
-#             raise HTTPException(status_code=400, detail="최대 50개의 파일명만 처리할 수 있습니다.")
+@app.post("/analyze/filenames")
+async def analyze_filenames(request: FilenamesRequest):
+    try:
+        if len(request.filenames) > 50:
+            raise HTTPException(status_code=400, detail="최대 50개의 파일명만 처리할 수 있습니다.")
             
-#         logger.info(f"Received request to analyze {len(request.filenames)} filenames")
+        logger.info(f"Received request to analyze {len(request.filenames)} filenames")
         
-#         filenames_analysis_prompt = f"""
-# 다음 파일명들을 분석해주세요:
+        filenames_analysis_prompt = f"""
+다음 파일명들을 분석해주세요:
 
-# {chr(10).join([f"{i+1}. {filename}" for i, filename in enumerate(request.filenames)])}
+{chr(10).join([f"{i+1}. {filename}" for i, filename in enumerate(request.filenames)])}
 
-# 파일명 분석 가이드:
-# - 파일명에서 학교, 학년과 학기, 시험 정보를 추출할 수 있습니다. 예를 들어:
-#   * "백석고 고1-2 중간" -> 백석고등학교 1학년 2학기 중간고사
-#   * "첨단고등학교 고2-1 기말" -> 첨단고등학교 2학년 1학기 기말고사
+파일명 분석 가이드:
+- 파일명에서 학교, 학년과 학기, 시험 정보를 추출할 수 있습니다. 예를 들어:
+  * "백석고 고1-2 중간" -> 백석고등학교 1학년 2학기 중간고사
+  * "첨단고등학교 고2-1 기말" -> 첨단고등학교 2학년 1학기 기말고사
 
-# 각 파일명에 대해 다음 정보를 추출해주세요:
-# 1. year: 문서의 실시년도
-# 2. grade: 문서의 학년 (고1, 고2, 고3, 중1, 중2, 중3 등)
-# 3. track: 문서에서 나타나는 계열 정보 (공통, 문과, 이과)
-# 4. semester: 문서의 학기 (1학기, 2학기)
-# 5. test_type: 문서의 시험 유형 (중간고사, 기말고사)
-# 6. subject: 문서의 과목 (수학)
-# 7. detail_subject: 문서의 세부과목 (미적분, 기하, 확률과 통계, 공통수학, 수학(상), 수학(하), 기하와 벡터 등)
-# 8. school: 문서의 학교 이름 (XX중학교, YY고등학교)
-# 9. location: 지역 (서울 서초구, 인천 연수구, 경기 오산시, 오산시 등)
+각 파일명에 대해 다음 정보를 추출해주세요:
+1. year: 문서의 실시년도
+2. grade: 문서의 학년 (고1, 고2, 고3, 중1, 중2, 중3 등)
+3. track: 문서에서 나타나는 계열 정보 (공통, 문과, 이과)
+4. semester: 문서의 학기 (1학기, 2학기)
+5. test_type: 문서의 시험 유형 (중간고사, 기말고사)
+6. subject: 문서의 과목 (수학)
+7. detail_subject: 문서의 세부과목 (미적분, 기하, 확률과 통계, 공통수학, 수학(상), 수학(하), 기하와 벡터 등)
+8. school: 문서의 학교 이름 (XX중학교, YY고등학교)
+9. location: 지역 (서울 서초구, 인천 연수구, 경기 오산시, 오산시 등)
 
-# 응답은 반드시 다음 JSON 형식이어야 합니다:
-# {{
-#     "status": "success",
-#     "analyses": [
-#         {{
-#             "year": 2024,
-#             "grade": "고1",
-#             "track": "공통",
-#             "semester": "1학기",
-#             "test_type": "중간고사",
-#             "subject": "수학",
-#             "detail_subject": "수학(상)",
-#             "school": "OO고등학교",
-#             "location": "서울 강남구"
-#         }},
-#         // ... 나머지 파일명들에 대한 분석 결과
-#     ]
-# }}
-# """
+응답은 반드시 다음 JSON 형식이어야 합니다:
+{{
+    "status": "success",
+    "analyses": [
+        {{
+            "year": 2024,
+            "grade": "고1",
+            "track": "공통",
+            "semester": "1학기",
+            "test_type": "중간고사",
+            "subject": "수학",
+            "detail_subject": "수학(상)",
+            "school": "OO고등학교",
+            "location": "서울 강남구"
+        }},
+        // ... 나머지 파일명들에 대한 분석 결과
+    ]
+}}
+"""
 
-#         response = await model_handler.generate_response(
-#             prompt=filenames_analysis_prompt,
-#             system_instruction="당신은 파일 분석의 전문가입니다. 여러 파일명을 한 번에 분석하여 시험지의 기본 정보를 추출해주세요. 반드시 JSON 형식으로 응답해주세요. 이때, grade는 축약어로 고1, 고2, 고3, 중1, 중2, 중3 중에서 골라야하고, test_type은 중간고사, 기말고사 중에 골라야합니다. 만약 '1차' 라는 정보가 있다면 그것은 중간고사를 의미하고, '2차'라는 정보가 있다면 그것은 기말고사를 의미합니다. school은 AA중학교 혹은 BB고등학교와 같이 축약어가 아닌 방식으로 적어주세요. 학기(semester)는 1학기, 2학기 중에 골라야합니다. 23-2-1-M 의 경우는 2023년 2학년 1학기 중간고사를 의미합니다. M은 중간고사, F는 기말고사를 의미할 수도 있습니다. track은 계열 정보를 의미합니다. 문과, 이과인지 공통인지를 의미합니다.",
-#             temperature=0.1,
-#             response_model=FilenamesResponse
-#         )
+        response = await model_handler.generate_response(
+            prompt=filenames_analysis_prompt,
+            system_instruction="당신은 파일 분석의 전문가입니다. 여러 파일명을 한 번에 분석하여 시험지의 기본 정보를 추출해주세요. 반드시 JSON 형식으로 응답해주세요. 이때, grade는 축약어로 고1, 고2, 고3, 중1, 중2, 중3 중에서 골라야하고, test_type은 중간고사, 기말고사 중에 골라야합니다. 만약 '1차' 라는 정보가 있다면 그것은 중간고사를 의미하고, '2차'라는 정보가 있다면 그것은 기말고사를 의미합니다. school은 AA중학교 혹은 BB고등학교와 같이 축약어가 아닌 방식으로 적어주세요. 학기(semester)는 1학기, 2학기 중에 골라야합니다. 23-2-1-M 의 경우는 2023년 2학년 1학기 중간고사를 의미합니다. M은 중간고사, F는 기말고사를 의미할 수도 있습니다. track은 계열 정보를 의미합니다. 문과, 이과인지 공통인지를 의미합니다.",
+            temperature=0.1,
+            response_model=FilenamesResponse
+        )
 
-#         # 응답이 FilenamesResponse 타입인 경우
-#         if isinstance(response.content, FilenamesResponse):
-#             return {
-#                 "status": "success with FilenamesResponse",
-#                 "analyses": response.content.analyses
-#             }
-#         # 응답이 문자열인 경우 JSON으로 파싱 시도
-#         elif isinstance(response.content, str):
-#             try:
-#                 analysis_data = json.loads(response.content)
-#                 return {
-#                     "status": "success with str...",
-#                     "analyses": analysis_data["analyses"]
-#                 }
-#             except json.JSONDecodeError as e:
-#                 logger.error(f"JSON 파싱 오류: {str(e)}")
-#                 logger.error(f"원본 응답: {response.content}")
-#                 raise HTTPException(
-#                     status_code=500,
-#                     detail=f"JSON 파싱 오류: {str(e)}"
-#                 )
-#         else:
-#             logger.error(f"예상치 못한 응답 타입: {type(response.content)}")
-#             logger.error(f"응답 내용: {response.content}")
-#             raise HTTPException(
-#                 status_code=500,
-#                 detail=f"예상치 못한 응답 타입: {type(response.content)}"
-#             )
+        # 응답이 FilenamesResponse 타입인 경우
+        if isinstance(response.content, FilenamesResponse):
+            return {
+                "status": "success with FilenamesResponse",
+                "analyses": response.content.analyses
+            }
+        # 응답이 문자열인 경우 JSON으로 파싱 시도
+        elif isinstance(response.content, str):
+            try:
+                analysis_data = json.loads(response.content)
+                return {
+                    "status": "success with str...",
+                    "analyses": analysis_data["analyses"]
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {str(e)}")
+                logger.error(f"원본 응답: {response.content}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"JSON 파싱 오류: {str(e)}"
+                )
+        else:
+            logger.error(f"예상치 못한 응답 타입: {type(response.content)}")
+            logger.error(f"응답 내용: {response.content}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"예상치 못한 응답 타입: {type(response.content)}"
+            )
 
-#     except Exception as e:
-#         logger.error(f"파일명 분석 중 오류 발생: {str(e)}")
-#         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"파일명 분석 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     
-# @app.post("/analyze/ocr_scores")
-# async def analyze_ocr_scores(request: ImageRequest):
-#     """
-#     이미지에서 수학 문제의 점수를 추출합니다.
-#     Returns {"status": "success", "scores": [3.7, 2.5, ...]}  # 각 이미지별 점수
-#     """
-#     try:
-#         logger.info(f"Received request to analyze scores from {len(request.images)} images")
+@app.post("/analyze/ocr_scores")
+async def analyze_ocr_scores(request: ImageRequest):
+    """
+    이미지에서 수학 문제의 점수를 추출합니다.
+    Returns {"status": "success", "scores": [3.7, 2.5, ...]}  # 각 이미지별 점수
+    """
+    try:
+        logger.info(f"Received request to analyze scores from {len(request.images)} images")
 
-#         system_instruction = """
-# 당신은 수학 시험지의 점수를 추출하는 전문가입니다.
-# 주어진 이미지에서 다음 규칙에 따라 점수만 추출해주세요:
+        system_instruction = """
+당신은 수학 시험지의 점수를 추출하는 전문가입니다.
+주어진 이미지에서 다음 규칙에 따라 점수만 추출해주세요:
 
-# 1. 점수 추출 규칙:
-#    - 0~15 사이의 숫자만 점수로 인식
-#    - 소수점이 있는 경우도 포함 (예: 3.7, 2.5)
-#    - 괄호, 중괄호 등은 무시하고 순수 숫자만 추출
-#    - 15보다 큰 숫자는 무시
-#    - 점수가 없는 경우 0으로 처리
+1. 점수 추출 규칙:
+   - 0~15 사이의 숫자만 점수로 인식
+   - 소수점이 있는 경우도 포함 (예: 3.7, 2.5)
+   - 괄호, 중괄호 등은 무시하고 순수 숫자만 추출
+   - 15보다 큰 숫자는 무시
+   - 점수가 없는 경우 0으로 처리
 
-# 2. 응답 형식:
-#    - 각 이미지별로 점수를 리스트로 반환
-#    - JSON 형식으로 응답
-#    - 예시: {"status": "success", "scores": [3.7, 2.5, 0, 1.0]}
+2. 응답 형식:
+   - 각 이미지별로 점수를 리스트로 반환
+   - JSON 형식으로 응답
+   - 예시: {"status": "success", "scores": [3.7, 2.5, 0, 1.0]}
 
-# 3. 주의사항:
-#    - 문제 번호나 다른 숫자는 무시
-#    - 점수 표시가 있는 부분만 추출
-#    - 확실하지 않은 경우 0으로 처리
-# """
+3. 주의사항:
+   - 문제 번호나 다른 숫자는 무시
+   - 점수 표시가 있는 부분만 추출
+   - 확실하지 않은 경우 0으로 처리
+"""
 
-#         # 모델 호출
-#         model_resp = await model_handler.generate_response_with_images(
-#             prompt="이미지에서 수학 문제의 점수만 추출해주세요.",
-#             images=request.images,
-#             system_instruction=system_instruction,
-#             temperature=0.1,
-#             response_model=ScoreResponse
-#         )
+        # 모델 호출
+        model_resp = await model_handler.generate_response_with_images(
+            prompt="이미지에서 수학 문제의 점수만 추출해주세요.",
+            images=request.images,
+            system_instruction=system_instruction,
+            temperature=0.1,
+            response_model=ScoreResponse
+        )
 
-#         # 응답 처리
-#         if isinstance(model_resp.content, ScoreResponse):
-#             return {
-#                 "status": "success",
-#                 "scores": model_resp.content.scores
-#             }
-#         elif isinstance(model_resp.content, str):
-#             try:
-#                 response_data = json.loads(model_resp.content)
-#                 return {
-#                     "status": "success",
-#                     "scores": response_data["scores"]
-#                 }
-#             except json.JSONDecodeError as e:
-#                 logger.error(f"JSON 파싱 오류: {str(e)}")
-#                 logger.error(f"원본 응답: {model_resp.content}")
-#                 raise HTTPException(
-#                     status_code=500,
-#                     detail=f"JSON 파싱 오류: {str(e)}"
-#                 )
-#         else:
-#             logger.error(f"예상치 못한 응답 타입: {type(model_resp.content)}")
-#             raise HTTPException(
-#                 status_code=500,
-#                 detail=f"예상치 못한 응답 타입: {type(model_resp.content)}"
-#             )
+        # 응답 처리
+        if isinstance(model_resp.content, ScoreResponse):
+            return {
+                "status": "success",
+                "scores": model_resp.content.scores
+            }
+        elif isinstance(model_resp.content, str):
+            try:
+                response_data = json.loads(model_resp.content)
+                return {
+                    "status": "success",
+                    "scores": response_data["scores"]
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {str(e)}")
+                logger.error(f"원본 응답: {model_resp.content}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"JSON 파싱 오류: {str(e)}"
+                )
+        else:
+            logger.error(f"예상치 못한 응답 타입: {type(model_resp.content)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"예상치 못한 응답 타입: {type(model_resp.content)}"
+            )
 
-#     except Exception as e:
-#         logger.error(f"점수 분석 중 오류 발생: {str(e)}")
-#         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"점수 분석 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/analyze/fast_answer_sheet")
 async def analyze_fast_answer_sheet(request: ImageRequest):
@@ -664,14 +666,14 @@ async def analyze_fast_answer_sheet(request: ImageRequest):
 1. 정답 추출 규칙:
    - 객관식, 주관식, 서술형을 구분할 것.
    - 대부분의 문제는 객관식임. "정답" 열 혹은 "정답" 행 에 있는 값들이 정답임.
-   - 주관식의 경우 $$로 감싸진 latex 문법으로 정답을 추출할 것. 한글로만 이루어졌다면 한글로 적을 것. ex) 마름모, (1) 마름모.
+   - 주관식의 경우 $로 감싸진 latex 문법으로 정답을 추출할 것. 한글로만 이루어졌다면 한글로 적을 것. ex) 마름모, (1) 마름모.
    - 서술형의 경우 '해설참조'로 추출할 것.
    - 객관식의 경우 1,2,3,4,5 등의 답은 "⓪①②③④⑤⑥⑦⑧⑨"와 같이 원문자를 이용하여 답변을 해야해.
 
 2. 응답 형식:
    - 각 이미지들을 전부 참조하여 정답을 추출할 것.
    - JSON 형식으로 응답
-   - number는 반드시 숫자로 시작해야하고, 2단계까지만 진행해야함. I.삼각형의 성질 등의 서술이 있더라도, 24-(1), 24-(2)와 같이 최대한 2단계로 대답할 것. 
+   - number는 반드시 숫자로 시작해야하고, 2단계까지만 진행해야함. I.삼각형의 성질 등의 서술이 있더라도, 24-(1), 24-(2)와 같이 최대한 2단계로 대답할 것.  예를 들어 I.삼각형의 성질 속에 01 02, 01-(1), 02-(3) 등이 있다고 하면 무조건 01-(1), 02-(3)으로 답해야만 함.
    - 예시: {
        "status": "success", 
        "answers": [

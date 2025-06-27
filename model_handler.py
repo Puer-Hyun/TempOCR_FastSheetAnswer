@@ -13,10 +13,16 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-def setup_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
+def setup_logger(name: str, level: int = None) -> logging.Logger:
     """통합 로거 설정"""
     logger = logging.getLogger(name)
     logger.handlers = []  # 기존 핸들러 제거
+
+    # 로그 레벨 설정
+    if level is None:
+        # 환경변수에서 로그 레벨 읽기
+        log_level_str = os.getenv("MODEL_HANDLER_LOG_LEVEL", "INFO").upper()
+        level = getattr(logging, log_level_str, logging.INFO)
 
     # 콘솔 핸들러 추가
     console_handler = logging.StreamHandler()
@@ -78,7 +84,7 @@ class ModelHandler:
             location=self.location
         ).aio
         
-        self.logger = setup_logger("model_handler", level=logging.DEBUG)
+        self.logger = setup_logger("model_handler")
         
         # 일반 클라이언트도 초기화
         self.regular_client = genai.Client(
@@ -485,7 +491,7 @@ class AsyncModelHandler:
             location=self.location
         ).aio
         
-        self.logger = setup_logger("async_model_handler", level=logging.DEBUG)
+        self.logger = setup_logger("async_model_handler")
         
         # 일반 클라이언트도 초기화
         self.regular_client = genai.Client(
